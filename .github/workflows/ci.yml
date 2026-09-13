@@ -31,3 +31,24 @@ jobs:
 
       - name: Docker build
         run: docker build -t trillionaire-ci .
+
+      - name: Production routing diagnostics
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: |
+          echo '=== DNS resolution ==='
+          for host in trillionaire-web-production.up.railway.app trillionairethegame.com; do
+            echo "--- $host"
+            getent ahostsv4 "$host" || true
+          done
+
+          echo '=== HTTP/HTTPS checks ==='
+          for base in https://trillionaire-web-production.up.railway.app https://trillionairethegame.com; do
+            echo "--- $base/health"
+            curl --silent --show-error --max-time 20 --location --dump-header - "$base/health" || true
+            echo
+            echo "--- $base/"
+            curl --silent --show-error --max-time 20 --location --dump-header - --output /tmp/body.txt "$base/" || true
+            head -c 300 /tmp/body.txt 2>/dev/null || true
+            echo
+          done
