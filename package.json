@@ -6,7 +6,8 @@
   "description": "TRILLIONAIRE browser strategy game and authoritative competitive leaderboard server",
   "scripts": {
     "start": "node server.mjs",
-    "qa": "node qa-server.mjs"
+    "qa": "node qa-server.mjs",
+    "preflight": "node scripts/preflight.mjs"
   },
   "engines": {
     "node": ">=22"
