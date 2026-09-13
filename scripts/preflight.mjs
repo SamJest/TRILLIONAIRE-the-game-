@@ -7,15 +7,19 @@ import {fileURLToPath} from 'node:url';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const publicDir=path.join(root,'public');
-const single=path.join(publicDir,'game.br');
+const singleCandidates=[
+  path.join(publicDir,'game.br'),
+  path.join(publicDir,'game-parts','TRILLIONAIRE_GAME_BUNDLE_v0.095.br')
+];
 const partsDir=path.join(publicDir,'game-parts');
 const EXPECTED_COMPRESSED_SHA256='a6510032d19e94ff57e18fcbed3037896d61b4decad44f1dd13b0f4a9176b164';
 const EXPECTED_PARTS=54;
 
 let compressed;
-if(existsSync(single)){
+const single=singleCandidates.find(existsSync);
+if(single){
   compressed=await readFile(single);
-  console.log('preflight: using public/game.br');
+  console.log(`preflight: using ${path.relative(root,single)}`);
 }else{
   const names=(await readdir(partsDir)).filter(n=>/^part-\d{3}\.b64$/.test(n)).sort();
   if(names.length!==EXPECTED_PARTS){
