@@ -3,6 +3,5 @@ WORKDIR /app
 COPY . .
 RUN node scripts/preflight.mjs
 ENV HOST=0.0.0.0 PORT=8787 DATA_DIR=/data
-VOLUME ["/data"]
 EXPOSE 8787
 CMD ["node","server.mjs"]
