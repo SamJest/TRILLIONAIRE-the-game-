@@ -4,6 +4,20 @@
 
 One Node service serves both the HTML game and the API. Point `trillionairethegame.com` at that service.
 
+## Current deployment gate
+
+The production server/config/replay-verification stack is in the repository. The final optimized v0.095 browser client is Brotli-packed and must exist as `public/game.br` before deployment.
+
+Canonical compressed SHA256:
+
+```text
+a6510032d19e94ff57e18fcbed3037896d61b4decad44f1dd13b0f4a9176b164
+```
+
+For compatibility the loader can also reconstruct the client from exactly 54 sorted files under `public/game-parts/`, but a single `public/game.br` is the preferred production artifact.
+
+`npm run preflight` and the Docker build intentionally fail if the bundle is missing, incomplete or has the wrong hash. Do not bypass this check.
+
 ## Environment
 
 ```text
@@ -21,11 +35,15 @@ TRILLIONAIRE_SEED=MARS-RACE-ALPHA-002
 
 Mount a persistent volume at `/data`. The SQLite database, WAL and related state live there.
 
+## Hosting
+
+GitHub Pages is not the production host because it cannot execute the Node competitive API/replay verifier. Use Railway or Render (the repository includes configuration for both). GitHub remains the source repository.
+
 ## DNS
 
 The exact DNS records depend on the hosting provider. After deployment, add the provider's requested apex-domain record for `trillionairethegame.com` and optionally redirect `www.trillionairethegame.com` to the apex domain.
 
-Do not change DNS until the host gives the exact target record.
+Do not repeatedly change DNS before the full-stack host gives the exact target record.
 
 ## Launch verification
 
