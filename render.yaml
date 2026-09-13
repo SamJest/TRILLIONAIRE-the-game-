@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: trillionaire-the-game
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: DATA_DIR
+        value: /data
+      - key: TRILLIONAIRE_BUILD
+        value: v0.095
+      - key: TRILLIONAIRE_SEASON
+        value: S01-W01
+      - key: TRILLIONAIRE_RULESET
+        value: COMP-1.2
+      - key: TRILLIONAIRE_SEED
+        value: MARS-RACE-ALPHA-002
+    disk:
+      name: trillionaire-data
+      mountPath: /data
+      sizeGB: 1
