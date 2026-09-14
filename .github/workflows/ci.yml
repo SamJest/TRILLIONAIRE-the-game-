@@ -47,5 +47,17 @@ jobs:
           curl -fsS http://127.0.0.1:8787/leaderboard | grep -F 'TRILLIONAIRE_OPEN_LEADERBOARD'
           curl -fsS http://127.0.0.1:8787/api/v1/meta | grep -F '"ruleset":"COMP-1.2"'
 
+      - name: Live production verification
+        run: |
+          curl -fsS --max-time 30 https://trillionairethegame.com/health | tee /tmp/health.json
+          grep -F '"build":"v0.095"' /tmp/health.json
+          grep -F '"ruleset":"COMP-1.2"' /tmp/health.json
+          curl -fsS --max-time 30 https://trillionairethegame.com/ -o /tmp/live.html
+          grep -F '<title>TRILLIONAIRE — Mars Race</title>' /tmp/live.html
+          grep -F 'id="tr-race-launch"' /tmp/live.html
+          grep -F 'id="tr-first-run-brief"' /tmp/live.html
+          grep -F 'Build a Mars settlement that can survive without Earth.' /tmp/live.html
+          curl -fsS --max-time 30 https://trillionairethegame.com/leaderboard | grep -F 'TRILLIONAIRE_OPEN_LEADERBOARD'
+
       - name: Docker build
         run: docker build -t trillionaire-ci .
