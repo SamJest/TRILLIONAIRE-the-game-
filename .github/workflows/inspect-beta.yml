@@ -13,5 +13,5 @@ jobs:
         with:
           node-version: '22'
       - run: npm run preflight
-      - name: Run constraint-aware solvability simulations
-        run: node scripts/solver-beta.mjs
+      - name: Run broad solvability search
+        run: node scripts/solvability-search.mjs
