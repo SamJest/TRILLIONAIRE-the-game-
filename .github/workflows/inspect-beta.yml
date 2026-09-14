@@ -1,0 +1,17 @@
+name: TRILLIONAIRE Beta Runtime Inspect
+
+on:
+  push:
+    branches: [diagnostics/live-launch-smoke]
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm run preflight
+      - name: Inspect strategy runtime
+        run: node scripts/inspect-beta-runtime.mjs
