@@ -44,5 +44,23 @@ jobs:
           curl -fsS http://127.0.0.1:8787/leaderboard | grep -F 'TRILLIONAIRE_OPEN_LEADERBOARD'
           curl -fsS http://127.0.0.1:8787/api/v1/meta | grep -F '"ruleset":"COMP-1.2"'
 
+      - name: Live first-run UI audit
+        run: |
+          curl -fsS --max-time 30 https://trillionairethegame.com/ -o /tmp/live.html
+          node <<'NODE'
+          const fs=require('fs');
+          const h=fs.readFileSync('/tmp/live.html','utf8');
+          const text=s=>s.replace(/<script[\s\S]*?<\/script>/gi,' ').replace(/<style[\s\S]*?<\/style>/gi,' ').replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/\s+/g,' ').trim();
+          console.log('TITLE:',(h.match(/<title>([^<]*)<\/title>/i)||[])[1]||'');
+          const tags=[...h.matchAll(/<(button|a)\b([^>]*)>([\s\S]*?)<\/\1>/gi)].map(m=>({tag:m[1],attrs:m[2].replace(/\s+/g,' ').trim(),label:text(m[3])})).filter(x=>x.label).slice(0,120);
+          console.log('=== BUTTONS/LINKS ===');
+          for(const x of tags) console.log(`${x.tag.toUpperCase()} | ${x.label.slice(0,120)} | ${x.attrs.slice(0,180)}`);
+          console.log('=== RELEVANT TEXT WINDOWS ===');
+          for(const key of ['Fresh World','Seeded Challenge','GUIDED RUN','Guided Run','portfolio','commission','Mars Race','trillion','rival','Start','Launch']){
+            const i=h.toLowerCase().indexOf(key.toLowerCase());
+            if(i>=0) console.log(`-- ${key}:`,text(h.slice(Math.max(0,i-500),Math.min(h.length,i+900))).slice(0,1000));
+          }
+          NODE
+
       - name: Docker build
         run: docker build -t trillionaire-ci .
