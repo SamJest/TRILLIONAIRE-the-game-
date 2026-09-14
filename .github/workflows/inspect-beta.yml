@@ -13,5 +13,5 @@ jobs:
         with:
           node-version: '22'
       - run: npm run preflight
-      - name: Inspect victory requirements
-        run: node scripts/inspect-victory.mjs
+      - name: Run constraint-aware solvability simulations
+        run: node scripts/solver-beta.mjs
