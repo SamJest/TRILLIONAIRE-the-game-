@@ -24,7 +24,7 @@ await mkdir(DATA_DIR,{recursive:true});
 const db=new DatabaseSync(DB_FILE);db.exec(`PRAGMA journal_mode=WAL;PRAGMA foreign_keys=ON;
 CREATE TABLE IF NOT EXISTS players(id TEXT PRIMARY KEY,token_hash TEXT UNIQUE NOT NULL,handle TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY,player_id TEXT NOT NULL REFERENCES players(id),season TEXT NOT NULL,ruleset TEXT NOT NULL,seed TEXT NOT NULL,client_build TEXT NOT NULL,protocol TEXT NOT NULL,signature TEXT NOT NULL,won INTEGER NOT NULL,score INTEGER NOT NULL,grade TEXT NOT NULL,turn INTEGER NOT NULL,completion TEXT NOT NULL,dependency INTEGER NOT NULL,reliability INTEGER NOT NULL,capital REAL NOT NULL,debt REAL NOT NULL,failures INTEGER NOT NULL,slips INTEGER NOT NULL,population INTEGER NOT NULL,architecture TEXT NOT NULL,fingerprint TEXT NOT NULL,rival INTEGER NOT NULL,actions_json TEXT NOT NULL,submitted_at TEXT NOT NULL,verified_at TEXT NOT NULL,ip_hash TEXT NOT NULL,UNIQUE(season,ruleset,signature));
-CREATE INDEX IF NOT EXISTS idx_runs_board ON runs(season,ruleset,won DESC,score DESC,r.turn ASC);
+CREATE INDEX IF NOT EXISTS idx_runs_board ON runs(season,ruleset,won DESC,score DESC,turn ASC);
 CREATE INDEX IF NOT EXISTS idx_runs_player ON runs(player_id,season,ruleset);`);
 const RAW_GAME_HTML=await loadGameHtml();
 const PUBLIC_GAME_HTML=enhanceFirstRunHtml(enhanceGameHtml(RAW_GAME_HTML,{build:BUILD}));
