@@ -6,6 +6,10 @@ on:
 
 jobs:
   evaluate:
+    strategy:
+      fail-fast: false
+      matrix:
+        offset: [0, 30, 60, 90]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -14,4 +18,7 @@ jobs:
           node-version: '22'
       - run: npm run preflight
       - name: Evaluate candidate victory rules
+        env:
+          OFFSET: ${{ matrix.offset }}
+          COUNT: 30
         run: node scripts/balance-comp13-eval.mjs
