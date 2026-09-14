@@ -10,51 +10,320 @@ import {enhanceGameHtml} from './launch-ui.mjs';
 import {enhanceFirstRunHtml} from './first-run-ui.mjs';
 
 const __dirname=path.dirname(fileURLToPath(import.meta.url));
-const PORT=Number(process.env.PORT||8787),HOST=process.env.HOST||'0.0.0.0';
+const PORT=Number(process.env.PORT||8787);
+const HOST=process.env.HOST||'0.0.0.0';
 const DATA_DIR=process.env.DATA_DIR?path.resolve(process.env.DATA_DIR):path.join(__dirname,'data');
 const DB_FILE=path.join(DATA_DIR,'trillionaire.sqlite');
 const SEASON=process.env.TRILLIONAIRE_SEASON||'S01-W01';
 const RULESET=process.env.TRILLIONAIRE_RULESET||'COMP-1.2';
 const SEED=process.env.TRILLIONAIRE_SEED||'MARS-RACE-ALPHA-002';
 const BUILD=process.env.TRILLIONAIRE_BUILD||'v0.095';
-const PROTOCOL='TRILLIONAIRE-RUN-1',MAX_BODY=650_000;
-const allowedActions=new Set(['toggleProject','commitPortfolio','commissionTarget','chooseSpecial','chooseIncident','continueAfterIncident','chooseDoctrine','applyCapitalDeal','raiseDebt','sellHoldings','repayDebt','repairDistrict034','holdCapital','advance']);
+const ADMIN_TOKEN=String(process.env.TRILLIONAIRE_ADMIN_TOKEN||'');
+const PROTOCOL='TRILLIONAIRE-RUN-1';
+const MAX_BODY=650_000;
+
+const allowedActions=new Set([
+  'toggleProject','commitPortfolio','commissionTarget','chooseSpecial','chooseIncident',
+  'continueAfterIncident','chooseDoctrine','applyCapitalDeal','raiseDebt','sellHoldings',
+  'repayDebt','repairDistrict034','holdCapital','advance'
+]);
 const rateBuckets=new Map();
+
+const blockedWords=new Set([
+  'FUCK','FUCKER','FUCKING','SHIT','CUNT','BITCH','BASTARD',
+  'NIGGER','NIGGA','FAGGOT','KIKE','CHINK','TRANNY',
+  'NAZI','HITLER','RAPIST','PEDO','PAEDO'
+]);
+const blockedCompact=[
+  'NIGGER','NIGGA','FAGGOT','KIKE','CHINK','TRANNY',
+  'KILLJEWS','GASJEWS','WHITEPOWER','HEILHITLER'
+];
+const leetMap={
+  '0':'O','1':'I','2':'Z','3':'E','4':'A','5':'S','6':'G','7':'T','8':'B','9':'G'
+};
+
 await mkdir(DATA_DIR,{recursive:true});
-const db=new DatabaseSync(DB_FILE);db.exec(`PRAGMA journal_mode=WAL;PRAGMA foreign_keys=ON;
+const db=new DatabaseSync(DB_FILE);
+db.exec(`PRAGMA journal_mode=WAL;PRAGMA foreign_keys=ON;
 CREATE TABLE IF NOT EXISTS players(id TEXT PRIMARY KEY,token_hash TEXT UNIQUE NOT NULL,handle TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY,player_id TEXT NOT NULL REFERENCES players(id),season TEXT NOT NULL,ruleset TEXT NOT NULL,seed TEXT NOT NULL,client_build TEXT NOT NULL,protocol TEXT NOT NULL,signature TEXT NOT NULL,won INTEGER NOT NULL,score INTEGER NOT NULL,grade TEXT NOT NULL,turn INTEGER NOT NULL,completion TEXT NOT NULL,dependency INTEGER NOT NULL,reliability INTEGER NOT NULL,capital REAL NOT NULL,debt REAL NOT NULL,failures INTEGER NOT NULL,slips INTEGER NOT NULL,population INTEGER NOT NULL,architecture TEXT NOT NULL,fingerprint TEXT NOT NULL,rival INTEGER NOT NULL,actions_json TEXT NOT NULL,submitted_at TEXT NOT NULL,verified_at TEXT NOT NULL,ip_hash TEXT NOT NULL,UNIQUE(season,ruleset,signature));
 CREATE INDEX IF NOT EXISTS idx_runs_board ON runs(season,ruleset,won DESC,score DESC,turn ASC);
 CREATE INDEX IF NOT EXISTS idx_runs_player ON runs(player_id,season,ruleset);`);
+
 const RAW_GAME_HTML=await loadGameHtml();
 const PUBLIC_GAME_HTML=enhanceFirstRunHtml(enhanceGameHtml(RAW_GAME_HTML,{build:BUILD}));
 const GAME_BYTES=Buffer.from(PUBLIC_GAME_HTML);
 const replayEngine=ReplayEngine.fromHtml(RAW_GAME_HTML);
-function j(res,status,obj){const b=JSON.stringify(obj);res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Content-Length':Buffer.byteLength(b),'Cache-Control':'no-store','Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'Content-Type, Authorization','Access-Control-Allow-Methods':'GET,POST,PATCH,OPTIONS'});res.end(b)}
-function ip(req){return (req.headers['x-forwarded-for']||req.socket.remoteAddress||'unknown').toString().split(',')[0].trim()}
-function bucket(req){const k=ip(req),n=Date.now();let b=rateBuckets.get(k);if(!b||n-b.start>600000)b={start:n,count:0};b.count++;rateBuckets.set(k,b);return b.count<=30}
-function handle(v){return String(v||'').trim().toUpperCase().replace(/[^A-Z0-9 _.-]/g,'').slice(0,20)}
-function validHandle(h){return /^[A-Z0-9][A-Z0-9 _.-]{2,19}$/.test(h)}
-function tokHash(t){return crypto.createHash('sha256').update(String(t)).digest('hex')}
-function auth(req){const h=String(req.headers.authorization||'');if(!h.startsWith('Bearer '))return null;const t=h.slice(7);return db.prepare('SELECT id,handle,created_at,updated_at FROM players WHERE token_hash=?').get(tokHash(t))||null}
-async function body(req){return await new Promise((resolve,reject)=>{let size=0,c=[];req.on('data',x=>{size+=x.length;if(size>MAX_BODY){reject(new Error('Payload too large'));req.destroy();return}c.push(x)});req.on('end',()=>{try{resolve(JSON.parse(Buffer.concat(c).toString('utf8')||'{}'))}catch{reject(new Error('Invalid JSON'))}});req.on('error',reject)})}
-function hs(s){let h=2166136261>>>0;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)}return h>>>0}
-function signature(core){const s=JSON.stringify(core);return (hs(s).toString(16).padStart(8,'0')+hs(s.split('').reverse().join('')).toString(16).padStart(8,'0')).toUpperCase()}
-function validateActions(a){if(!Array.isArray(a)||a.length<1||a.length>500)return 'Action log invalid';let t=-1;for(let i=0;i<a.length;i++){const x=a[i];if(x?.n!==i+1)return `Action ${i+1} sequence invalid`;if(!Number.isInteger(x.turn)||x.turn<0||x.turn>28||x.turn<t)return `Action ${i+1} turn invalid`;t=x.turn;if(!allowedActions.has(x.type))return `Action ${i+1} type invalid`;if(x.payload!=null&&(typeof x.payload!=='object'||Array.isArray(x.payload)))return `Action ${i+1} payload invalid`}return null}
-function validateSubmission(p){if(p?.protocol!==PROTOCOL)return 'Protocol mismatch';if(p?.season!==SEASON||p?.ruleset!==RULESET)return 'Season/ruleset mismatch';if(p?.clientBuild!==BUILD)return 'Client build mismatch';const r=p?.run;if(!r||r.mode!=='challenge'||r.seed!==SEED||r.season!==SEASON||r.ruleset!==RULESET)return 'Run identity mismatch';if(!Number.isFinite(r.score)||r.score<0||r.score>200000)return 'Score invalid';if(!Number.isInteger(r.turn)||r.turn<0||r.turn>28)return 'Turn invalid';const core={...r};delete core.signature;if(signature(core)!==r.signature)return 'Client signature mismatch';return validateActions(r.actions)}
-function mismatch(a,b){const keys=['season','ruleset','seed','mode','won','score','grade','turn','completion','dependency','reliability','capital','debt','failures','slips','population','architecture','fingerprint','rival','signature'];return keys.filter(k=>JSON.stringify(a[k])!==JSON.stringify(b[k])).map(k=>({field:k,submitted:a[k],replayed:b[k]}))}
-function rowSql(order,limit){return db.prepare(`SELECT r.*,p.handle FROM runs r JOIN players p ON p.id=r.player_id WHERE r.season=? AND r.ruleset=? ${order.filter||''} ORDER BY ${order.sql} LIMIT ?`).all(SEASON,RULESET,limit)}
-const sorts={canonical:{sql:'r.won DESC,r.score DESC,r.turn ASC,r.dependency ASC,r.capital ASC',filter:''},fastest:{sql:'r.turn ASC,r.score DESC,r.dependency ASC,r.capital ASC',filter:'AND r.won=1'},efficient:{sql:'r.capital ASC,r.score DESC,r.turn ASC',filter:'AND r.won=1'}};
-function pub(r,rank){return {rank,id:r.id,handle:r.handle,score:r.score,grade:r.grade,won:!!r.won,completion:r.completion,turn:r.turn,dependency:r.dependency,reliability:r.reliability,capital:r.capital,debt:r.debt,failures:r.failures,population:r.population,architecture:r.architecture,fingerprint:r.fingerprint,rival:r.rival,signature:r.signature,verifiedAt:r.verified_at}}
-function rankCanonical(id){const rows=rowSql(sorts.canonical,100000);return rows.findIndex(x=>x.id===id)+1}
-const server=http.createServer(async(req,res)=>{try{if(req.method==='OPTIONS'){res.writeHead(204,{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'Content-Type, Authorization','Access-Control-Allow-Methods':'GET,POST,PATCH,OPTIONS'});return res.end()}const u=new URL(req.url,`http://${req.headers.host||'localhost'}`);
-if(req.method==='GET'&&(u.pathname==='/'||u.pathname==='/game'||u.pathname==='/TRILLIONAIRE.html'||u.pathname==='/index.html'||u.pathname==='/leaderboard')){const b=GAME_BYTES;res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Content-Length':b.length,'Cache-Control':'no-cache'});return res.end(b)}
-if(req.method==='GET'&&u.pathname==='/health')return j(res,200,{ok:true,build:BUILD,season:SEASON,ruleset:RULESET,verification:'node-vm-replay',database:'sqlite'});
-if(req.method==='GET'&&u.pathname==='/api/v1/meta')return j(res,200,{online:true,protocol:PROTOCOL,build:BUILD,season:SEASON,ruleset:RULESET,seed:SEED,verification:'server-replay',engine:'node-vm',database:'sqlite',identity:'anonymous-token',boards:Object.keys(sorts)});
-if(req.method==='POST'&&u.pathname==='/api/v1/players/anonymous'){if(!bucket(req))return j(res,429,{error:'Too many requests'});const p=await body(req);let h=handle(p.handle);if(!validHandle(h))h='MARS-'+crypto.randomBytes(3).toString('hex').toUpperCase();const id=crypto.randomUUID(),token=crypto.randomBytes(32).toString('base64url'),now=new Date().toISOString();db.prepare('INSERT INTO players(id,token_hash,handle,created_at,updated_at) VALUES(?,?,?,?,?)').run(id,tokHash(token),h,now,now);return j(res,201,{player:{id,handle:h,createdAt:now},token})}
-if(u.pathname==='/api/v1/players/me'){const me=auth(req);if(!me)return j(res,401,{error:'Authentication required'});if(req.method==='GET')return j(res,200,{player:{id:me.id,handle:me.handle,createdAt:me.created_at,updatedAt:me.updated_at}});if(req.method==='PATCH'){const p=await body(req),h=handle(p.handle);if(!validHandle(h))return j(res,400,{error:'Handle must be 3–20 allowed characters'});const now=new Date().toISOString();db.prepare('UPDATE players SET handle=?,updated_at=? WHERE id=?').run(h,now,me.id);return j(res,200,{player:{id:me.id,handle:h,updatedAt:now}})}}
-if(req.method==='GET'&&u.pathname==='/api/v1/leaderboards/current'){const b=sorts[u.searchParams.get('board')]?u.searchParams.get('board'):'canonical',limit=Math.max(1,Math.min(50,Number(u.searchParams.get('limit')||10))),rows=rowSql(sorts[b],limit);const countFilter=(sorts[b].filter||'').replaceAll('r.','');const count=db.prepare(`SELECT COUNT(*) n FROM runs WHERE season=? AND ruleset=? ${countFilter}`).get(SEASON,RULESET).n;return j(res,200,{season:SEASON,ruleset:RULESET,board:b,count,rows:rows.map((x,i)=>pub(x,i+1))})}
-if(req.method==='GET'&&u.pathname.startsWith('/api/v1/runs/')){const id=u.pathname.split('/').pop();const r=db.prepare('SELECT r.*,p.handle FROM runs r JOIN players p ON p.id=r.player_id WHERE r.id=?').get(id);if(!r)return j(res,404,{error:'Run not found'});return j(res,200,{run:pub(r,rankCanonical(id))})}
-if(req.method==='POST'&&u.pathname==='/api/v1/runs'){if(!bucket(req))return j(res,429,{error:'Too many submissions'});const me=auth(req);if(!me)return j(res,401,{error:'Authentication required'});const p=await body(req),err=validateSubmission(p);if(err)return j(res,400,{error:err});const ex=db.prepare('SELECT r.*,p.handle FROM runs r JOIN players p ON p.id=r.player_id WHERE r.season=? AND r.ruleset=? AND r.signature=?').get(SEASON,RULESET,p.run.signature);if(ex)return j(res,200,{ok:true,duplicate:true,verified:true,id:ex.id,rank:rankCanonical(ex.id),run:pub(ex,rankCanonical(ex.id))});let replay;try{replay=replayEngine.replay(p.run.actions)}catch(e){return j(res,422,{error:'Replay rejected',detail:e.message})}const mm=mismatch(p.run,replay.record);if(mm.length)return j(res,422,{error:'Replay result mismatch',mismatches:mm.slice(0,8)});const r=p.run,id=crypto.randomUUID(),now=new Date().toISOString(),iph=crypto.createHash('sha256').update(ip(req)+'|'+SEASON).digest('hex').slice(0,16);db.prepare(`INSERT INTO runs(id,player_id,season,ruleset,seed,client_build,protocol,signature,won,score,grade,turn,completion,dependency,reliability,capital,debt,failures,slips,population,architecture,fingerprint,rival,actions_json,submitted_at,verified_at,ip_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id,me.id,SEASON,RULESET,SEED,p.clientBuild,PROTOCOL,r.signature,r.won?1:0,r.score,r.grade,r.turn,r.completion,r.dependency,r.reliability,r.capital,r.debt,r.failures,r.slips,r.population,r.architecture,r.fingerprint,r.rival,JSON.stringify(r.actions),p.submittedAt||now,now,iph);const saved=db.prepare('SELECT r.*,p.handle FROM runs r JOIN players p ON p.id=r.player_id WHERE r.id=?').get(id);const rank=rankCanonical(id);return j(res,201,{ok:true,verified:true,id,rank,run:pub(saved,rank)})}
-return j(res,404,{error:'Not found'});}catch(e){console.error(e);return j(res,500,{error:e?.message||'Server error'})}});
+
+function j(res,status,obj){
+  const b=JSON.stringify(obj);
+  res.writeHead(status,{
+    'Content-Type':'application/json; charset=utf-8',
+    'Content-Length':Buffer.byteLength(b),
+    'Cache-Control':'no-store',
+    'Access-Control-Allow-Origin':'*',
+    'Access-Control-Allow-Headers':'Content-Type, Authorization',
+    'Access-Control-Allow-Methods':'GET,POST,PATCH,OPTIONS'
+  });
+  res.end(b);
+}
+
+function ip(req){
+  return (req.headers['x-forwarded-for']||req.socket.remoteAddress||'unknown').toString().split(',')[0].trim();
+}
+
+function bucket(req){
+  const k=ip(req),n=Date.now();
+  let b=rateBuckets.get(k);
+  if(!b||n-b.start>600000)b={start:n,count:0};
+  b.count++;
+  rateBuckets.set(k,b);
+  return b.count<=30;
+}
+
+function handle(v){
+  return String(v||'').trim().toUpperCase().replace(/[^A-Z0-9 _.-]/g,'').slice(0,20);
+}
+
+function validHandle(h){
+  return /^[A-Z0-9][A-Z0-9 _.-]{2,19}$/.test(h);
+}
+
+function moderationKey(h){
+  return String(h||'').toUpperCase().replace(/[0-9]/g,d=>leetMap[d]||d);
+}
+
+function handleModerationError(h){
+  if(!validHandle(h))return 'Callsign must be 3–20 allowed characters';
+  const mapped=moderationKey(h);
+  const words=mapped.split(/[^A-Z]+/).filter(Boolean);
+  const compact=mapped.replace(/[^A-Z]/g,'');
+  if(words.some(w=>blockedWords.has(w)))return 'Callsign not allowed';
+  if(blockedCompact.some(w=>compact.includes(w)))return 'Callsign not allowed';
+  return null;
+}
+
+function randomHandle(){
+  return 'MARS-'+crypto.randomBytes(3).toString('hex').toUpperCase();
+}
+
+function tokHash(t){
+  return crypto.createHash('sha256').update(String(t)).digest('hex');
+}
+
+function auth(req){
+  const h=String(req.headers.authorization||'');
+  if(!h.startsWith('Bearer '))return null;
+  const t=h.slice(7);
+  return db.prepare('SELECT id,handle,created_at,updated_at FROM players WHERE token_hash=?').get(tokHash(t))||null;
+}
+
+function adminAuthorized(req){
+  if(!ADMIN_TOKEN)return false;
+  const h=String(req.headers.authorization||'');
+  if(!h.startsWith('Bearer '))return false;
+  const supplied=Buffer.from(h.slice(7));
+  const expected=Buffer.from(ADMIN_TOKEN);
+  return supplied.length===expected.length&&crypto.timingSafeEqual(supplied,expected);
+}
+
+async function body(req){
+  return await new Promise((resolve,reject)=>{
+    let size=0,c=[];
+    req.on('data',x=>{
+      size+=x.length;
+      if(size>MAX_BODY){reject(new Error('Payload too large'));req.destroy();return;}
+      c.push(x);
+    });
+    req.on('end',()=>{
+      try{resolve(JSON.parse(Buffer.concat(c).toString('utf8')||'{}'));}
+      catch{reject(new Error('Invalid JSON'));}
+    });
+    req.on('error',reject);
+  });
+}
+
+function hs(s){
+  let h=2166136261>>>0;
+  for(let i=0;i<s.length;i++){
+    h^=s.charCodeAt(i);
+    h=Math.imul(h,16777619);
+  }
+  return h>>>0;
+}
+
+function signature(core){
+  const s=JSON.stringify(core);
+  return (hs(s).toString(16).padStart(8,'0')+hs(s.split('').reverse().join('')).toString(16).padStart(8,'0')).toUpperCase();
+}
+
+function validateActions(a){
+  if(!Array.isArray(a)||a.length<1||a.length>500)return 'Action log invalid';
+  let t=-1;
+  for(let i=0;i<a.length;i++){
+    const x=a[i];
+    if(x?.n!==i+1)return `Action ${i+1} sequence invalid`;
+    if(!Number.isInteger(x.turn)||x.turn<0||x.turn>28||x.turn<t)return `Action ${i+1} turn invalid`;
+    t=x.turn;
+    if(!allowedActions.has(x.type))return `Action ${i+1} type invalid`;
+    if(x.payload!=null&&(typeof x.payload!=='object'||Array.isArray(x.payload)))return `Action ${i+1} payload invalid`;
+  }
+  return null;
+}
+
+function validateSubmission(p){
+  if(p?.protocol!==PROTOCOL)return 'Protocol mismatch';
+  if(p?.season!==SEASON||p?.ruleset!==RULESET)return 'Season/ruleset mismatch';
+  if(p?.clientBuild!==BUILD)return 'Client build mismatch';
+  const r=p?.run;
+  if(!r||r.mode!=='challenge'||r.seed!==SEED||r.season!==SEASON||r.ruleset!==RULESET)return 'Run identity mismatch';
+  if(!Number.isFinite(r.score)||r.score<0||r.score>200000)return 'Score invalid';
+  if(!Number.isInteger(r.turn)||r.turn<0||r.turn>28)return 'Turn invalid';
+  const core={...r};
+  delete core.signature;
+  if(signature(core)!==r.signature)return 'Client signature mismatch';
+  return validateActions(r.actions);
+}
+
+function mismatch(a,b){
+  const keys=['season','ruleset','seed','mode','won','score','grade','turn','completion','dependency','reliability','capital','debt','failures','slips','population','architecture','fingerprint','rival','signature'];
+  return keys.filter(k=>JSON.stringify(a[k])!==JSON.stringify(b[k])).map(k=>({field:k,submitted:a[k],replayed:b[k]}));
+}
+
+function rowSql(order,limit){
+  return db.prepare(`SELECT r.*,p.handle FROM runs r JOIN players p ON p.id=r.player_id WHERE r.season=? AND r.ruleset=? ${order.filter||''} ORDER BY ${order.sql} LIMIT ?`).all(SEASON,RULESET,limit);
+}
+
+const sorts={
+  canonical:{sql:'r.won DESC,r.score DESC,r.turn ASC,r.dependency ASC,r.capital ASC',filter:''},
+  fastest:{sql:'r.turn ASC,r.score DESC,r.dependency ASC,r.capital ASC',filter:'AND r.won=1'},
+  efficient:{sql:'r.capital ASC,r.score DESC,r.turn ASC',filter:'AND r.won=1'}
+};
+
+function pub(r,rank){
+  return {rank,id:r.id,handle:r.handle,score:r.score,grade:r.grade,won:!!r.won,completion:r.completion,turn:r.turn,dependency:r.dependency,reliability:r.reliability,capital:r.capital,debt:r.debt,failures:r.failures,population:r.population,architecture:r.architecture,fingerprint:r.fingerprint,rival:r.rival,signature:r.signature,verifiedAt:r.verified_at};
+}
+
+function rankCanonical(id){
+  const rows=rowSql(sorts.canonical,100000);
+  return rows.findIndex(x=>x.id===id)+1;
+}
+
+const server=http.createServer(async(req,res)=>{
+  try{
+    if(req.method==='OPTIONS'){
+      res.writeHead(204,{
+        'Access-Control-Allow-Origin':'*',
+        'Access-Control-Allow-Headers':'Content-Type, Authorization',
+        'Access-Control-Allow-Methods':'GET,POST,PATCH,OPTIONS'
+      });
+      return res.end();
+    }
+
+    const u=new URL(req.url,`http://${req.headers.host||'localhost'}`);
+
+    if(req.method==='GET'&&(u.pathname==='/'||u.pathname==='/game'||u.pathname==='/TRILLIONAIRE.html'||u.pathname==='/index.html'||u.pathname==='/leaderboard')){
+      const b=GAME_BYTES;
+      res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Content-Length':b.length,'Cache-Control':'no-cache'});
+      return res.end(b);
+    }
+
+    if(req.method==='GET'&&u.pathname==='/health'){
+      return j(res,200,{ok:true,build:BUILD,season:SEASON,ruleset:RULESET,verification:'node-vm-replay',database:'sqlite'});
+    }
+
+    if(req.method==='GET'&&u.pathname==='/api/v1/meta'){
+      return j(res,200,{online:true,protocol:PROTOCOL,build:BUILD,season:SEASON,ruleset:RULESET,seed:SEED,verification:'server-replay',engine:'node-vm',database:'sqlite',identity:'anonymous-token',boards:Object.keys(sorts)});
+    }
+
+    if(req.method==='POST'&&u.pathname==='/api/v1/players/anonymous'){
+      if(!bucket(req))return j(res,429,{error:'Too many requests'});
+      const p=await body(req);
+      let h=handle(p.handle);
+      if(handleModerationError(h))h=randomHandle();
+      const id=crypto.randomUUID(),token=crypto.randomBytes(32).toString('base64url'),now=new Date().toISOString();
+      db.prepare('INSERT INTO players(id,token_hash,handle,created_at,updated_at) VALUES(?,?,?,?,?)').run(id,tokHash(token),h,now,now);
+      return j(res,201,{player:{id,handle:h,createdAt:now},token});
+    }
+
+    if(u.pathname==='/api/v1/players/me'){
+      const me=auth(req);
+      if(!me)return j(res,401,{error:'Authentication required'});
+      if(req.method==='GET')return j(res,200,{player:{id:me.id,handle:me.handle,createdAt:me.created_at,updatedAt:me.updated_at}});
+      if(req.method==='PATCH'){
+        const p=await body(req),h=handle(p.handle),modError=handleModerationError(h);
+        if(modError)return j(res,400,{error:modError});
+        const now=new Date().toISOString();
+        db.prepare('UPDATE players SET handle=?,updated_at=? WHERE id=?').run(h,now,me.id);
+        return j(res,200,{player:{id:me.id,handle:h,updatedAt:now}});
+      }
+    }
+
+    if(req.method==='POST'&&u.pathname==='/api/v1/admin/moderate-handle'){
+      if(!ADMIN_TOKEN)return j(res,404,{error:'Not found'});
+      if(!adminAuthorized(req))return j(res,401,{error:'Authentication required'});
+      const p=await body(req);
+      let playerId=String(p.playerId||'').trim();
+      if(!playerId&&p.runId){
+        const target=db.prepare('SELECT player_id FROM runs WHERE id=?').get(String(p.runId));
+        playerId=target?.player_id||'';
+      }
+      if(!playerId)return j(res,400,{error:'playerId or runId required'});
+      const current=db.prepare('SELECT id,handle FROM players WHERE id=?').get(playerId);
+      if(!current)return j(res,404,{error:'Player not found'});
+      let replacement=handle(p.handle);
+      if(!replacement)replacement=randomHandle();
+      const modError=handleModerationError(replacement);
+      if(modError)return j(res,400,{error:modError});
+      const now=new Date().toISOString();
+      db.prepare('UPDATE players SET handle=?,updated_at=? WHERE id=?').run(replacement,now,playerId);
+      const affectedRuns=db.prepare('SELECT COUNT(*) n FROM runs WHERE player_id=?').get(playerId).n;
+      console.log(`moderation: player ${playerId} handle changed ${current.handle} -> ${replacement}`);
+      return j(res,200,{ok:true,playerId,previousHandle:current.handle,handle:replacement,affectedRuns});
+    }
+
+    if(req.method==='GET'&&u.pathname==='/api/v1/leaderboards/current'){
+      const b=sorts[u.searchParams.get('board')]?u.searchParams.get('board'):'canonical';
+      const limit=Math.max(1,Math.min(50,Number(u.searchParams.get('limit')||10)));
+      const rows=rowSql(sorts[b],limit);
+      const countFilter=(sorts[b].filter||'').replaceAll('r.','');
+      const count=db.prepare(`SELECT COUNT(*) n FROM runs WHERE season=? AND ruleset=? ${countFilter}`).get(SEASON,RULESET).n;
+      return j(res,200,{season:SEASON,ruleset:RULESET,board:b,count,rows:rows.map((x,i)=>pub(x,i+1))});
+    }
+
+    if(req.method==='GET'&&u.pathname.startsWith('/api/v1/runs/')){
+      const id=u.pathname.split('/').pop();
+      const r=db.prepare('SELECT r.*,p.handle FROM runs r JOIN players p ON p.id=r.player_id WHERE r.id=?').get(id);
+      if(!r)return j(res,404,{error:'Run not found'});
+      return j(res,200,{run:pub(r,rankCanonical(id))});
+    }
+
+    if(req.method==='POST'&&u.pathname==='/api/v1/runs'){
+      if(!bucket(req))return j(res,429,{error:'Too many submissions'});
+      const me=auth(req);
+      if(!me)return j(res,401,{error:'Authentication required'});
+      const p=await body(req),err=validateSubmission(p);
+      if(err)return j(res,400,{error:err});
+      const ex=db.prepare('SELECT r.*,p.handle FROM runs r JOIN players p ON p.id=r.player_id WHERE r.season=? AND r.ruleset=? AND r.signature=?').get(SEASON,RULESET,p.run.signature);
+      if(ex)return j(res,200,{ok:true,duplicate:true,verified:true,id:ex.id,rank:rankCanonical(ex.id),run:pub(ex,rankCanonical(ex.id))});
+      let replay;
+      try{replay=replayEngine.replay(p.run.actions);}
+      catch(e){return j(res,422,{error:'Replay rejected',detail:e.message});}
+      const mm=mismatch(p.run,replay.record);
+      if(mm.length)return j(res,422,{error:'Replay result mismatch',mismatches:mm.slice(0,8)});
+      const r=p.run,id=crypto.randomUUID(),now=new Date().toISOString();
+      const iph=crypto.createHash('sha256').update(ip(req)+'|'+SEASON).digest('hex').slice(0,16);
+      db.prepare(`INSERT INTO runs(id,player_id,season,ruleset,seed,client_build,protocol,signature,won,score,grade,turn,completion,dependency,reliability,capital,debt,failures,slips,population,architecture,fingerprint,rival,actions_json,submitted_at,verified_at,ip_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id,me.id,SEASON,RULESET,SEED,p.clientBuild,PROTOCOL,r.signature,r.won?1:0,r.score,r.grade,r.turn,r.completion,r.dependency,r.reliability,r.capital,r.debt,r.failures,r.slips,r.population,r.architecture,r.fingerprint,r.rival,JSON.stringify(r.actions),p.submittedAt||now,now,iph);
+      const saved=db.prepare('SELECT r.*,p.handle FROM runs r JOIN players p ON p.id=r.player_id WHERE r.id=?').get(id);
+      const rank=rankCanonical(id);
+      return j(res,201,{ok:true,verified:true,id,rank,run:pub(saved,rank)});
+    }
+
+    return j(res,404,{error:'Not found'});
+  }catch(e){
+    console.error(e);
+    return j(res,500,{error:e?.message||'Server error'});
+  }
+});
+
 server.listen(PORT,HOST,()=>console.log(`TRILLIONAIRE ${BUILD} competitive server on http://${HOST}:${PORT}`));
