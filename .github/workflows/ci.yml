@@ -32,23 +32,88 @@ jobs:
       - name: Docker build
         run: docker build -t trillionaire-ci .
 
-      - name: Production routing diagnostics
+      - name: Full isolated competitive QA
         if: github.event_name == 'pull_request'
-        continue-on-error: true
         run: |
+          set -euo pipefail
+          QA_DATA="$(mktemp -d)"
+          DATA_DIR="$QA_DATA" PORT=18787 HOST=127.0.0.1 npm start >/tmp/trillionaire-qa-server.log 2>&1 &
+          QA_PID=$!
+          trap 'kill $QA_PID 2>/dev/null || true; rm -rf "$QA_DATA"' EXIT
+          for i in $(seq 1 30); do
+            if curl --silent --fail http://127.0.0.1:18787/health >/dev/null; then break; fi
+            sleep 1
+          done
+          BASE_URL=http://127.0.0.1:18787 npm run qa
+
+      - name: Production routing and safe API smoke test
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
           echo '=== DNS resolution ==='
           for host in trillionaire-web-production.up.railway.app trillionairethegame.com; do
             echo "--- $host"
-            getent ahostsv4 "$host" || true
+            getent ahostsv4 "$host"
           done
 
-          echo '=== HTTP/HTTPS checks ==='
-          for base in https://trillionaire-web-production.up.railway.app https://trillionairethegame.com; do
-            echo "--- $base/health"
-            curl --silent --show-error --max-time 20 --location --dump-header - "$base/health" || true
-            echo
-            echo "--- $base/"
-            curl --silent --show-error --max-time 20 --location --dump-header - --output /tmp/body.txt "$base/" || true
-            head -c 300 /tmp/body.txt 2>/dev/null || true
-            echo
-          done
+          node --input-type=module <<'NODE'
+          const BASE='https://trillionairethegame.com';
+          const assert=(x,m)=>{if(!x)throw new Error(m)};
+          async function json(path,opts){
+            const r=await fetch(BASE+path,opts);
+            let body=null;
+            try{body=await r.json()}catch{}
+            return {r,body};
+          }
+
+          let x=await json('/health');
+          assert(x.r.status===200,'health status');
+          assert(x.body?.ok===true&&x.body?.build==='v0.095'&&x.body?.ruleset==='COMP-1.2','health metadata');
+          console.log('PASS live health',x.body);
+
+          x=await json('/api/v1/meta');
+          assert(x.r.status===200,'meta status');
+          assert(x.body?.online===true&&x.body?.protocol==='TRILLIONAIRE-RUN-1'&&x.body?.build==='v0.095'&&x.body?.ruleset==='COMP-1.2','meta mismatch');
+          console.log('PASS live meta');
+
+          for(const board of ['canonical','fastest','efficient']){
+            x=await json('/api/v1/leaderboards/current?board='+board+'&limit=5');
+            assert(x.r.status===200&&Array.isArray(x.body?.rows)&&Number.isFinite(Number(x.body?.count)),'board '+board);
+            console.log('PASS live board',board,'count',x.body.count);
+          }
+
+          const handle='QA-SMOKE-'+Date.now().toString().slice(-8);
+          x=await json('/api/v1/players/anonymous',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({handle})});
+          assert(x.r.status===201&&x.body?.token&&x.body?.player?.id,'anonymous identity');
+          const token=x.body.token;
+          console.log('PASS live anonymous identity');
+
+          x=await json('/api/v1/players/me',{headers:{authorization:'Bearer '+token}});
+          assert(x.r.status===200&&x.body?.player?.id,'authenticated identity');
+          console.log('PASS live authenticated identity');
+
+          x=await json('/api/v1/players/me',{method:'PATCH',headers:{'content-type':'application/json',authorization:'Bearer '+token},body:JSON.stringify({handle:'QA-SMOKE-LIVE'})});
+          assert(x.r.status===200&&x.body?.player?.handle==='QA-SMOKE-LIVE','handle update');
+          console.log('PASS live handle update');
+
+          x=await json('/api/v1/runs',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
+          assert(x.r.status===401,'unauthenticated run should be rejected');
+          console.log('PASS live auth gate');
+
+          x=await json('/api/v1/runs',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+token},body:'{}'});
+          assert(x.r.status===400,'invalid authenticated run should be rejected');
+          console.log('PASS live validation gate');
+
+          x=await json('/api/v1/runs/00000000-0000-0000-0000-000000000000');
+          assert(x.r.status===404,'missing run lookup');
+          console.log('PASS live missing-run behavior');
+
+          const root=await fetch(BASE+'/');
+          assert(root.status===200,'root status');
+          const html=await root.text();
+          assert(html.includes('TRILLIONAIRE'),'root game content');
+          console.log('PASS live game root',html.length,'bytes');
+          if(/<title>TRILLIONAIRE v0\.092<\/title>/i.test(html)) console.log('WARN live HTML title metadata still says v0.092');
+
+          console.log('ALL SAFE LIVE PRODUCTION SMOKE TESTS PASSED');
+          NODE
