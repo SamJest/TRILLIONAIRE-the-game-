@@ -22,6 +22,9 @@ jobs:
         run: |
           node --check server.mjs
           node --check start.mjs
+          node --check launch-server.mjs
+          node --check analytics-ui.mjs
+          node --check analytics-store.mjs
           node --check replay-engine.mjs
           node --check game-source.mjs
           node --check launch-ui.mjs
@@ -32,47 +35,85 @@ jobs:
       - name: Game bundle preflight
         run: npm run preflight
 
-      - name: Launch surface and presentation smoke test
+      - name: Launch surface, analytics and presentation smoke test
+        env:
+          TRILLIONAIRE_ADMIN_TOKEN: ci-admin-token
         run: |
+          set -euo pipefail
           npm start > /tmp/trillionaire-server.log 2>&1 &
           PID=$!
-          trap 'kill $PID 2>/dev/null || true; cat /tmp/trillionaire-server.log' EXIT
-          for i in {1..20}; do
+          trap 'kill $PID 2>/dev/null || true; pkill -f "node server.mjs" 2>/dev/null || true; cat /tmp/trillionaire-server.log' EXIT
+          for i in {1..30}; do
             curl -fsS http://127.0.0.1:8787/health >/dev/null && break
             sleep 0.25
           done
+
           curl -fsS http://127.0.0.1:8787/ -o /tmp/home.html
           grep -F 'id="tr-race-launch"' /tmp/home.html
           grep -F '<title>TRILLIONAIRE — Mars Race</title>' /tmp/home.html
           grep -F 'id="tr-first-run-brief"' /tmp/home.html
+          grep -F 'id="tr-analytics-script"' /tmp/home.html
           grep -F 'Build a Mars settlement that can survive without Earth.' /tmp/home.html
           grep -F 'property="og:image"' /tmp/home.html
-          grep -F 'trillionaire-social-card.png' /tmp/home.html
+          grep -F 'https://trillionairethegame.com/assets/trillionaire-social-card.png' /tmp/home.html
           grep -F 'rel="icon"' /tmp/home.html
           grep -F 'apple-touch-icon' /tmp/home.html
-          test -s public/assets/trillionaire-social-card.png
-          test -s public/assets/favicon.png
-          test -s public/assets/apple-touch-icon.png
+
+          curl -fsS http://127.0.0.1:8787/favicon.ico -o /tmp/favicon.png
+          test -s /tmp/favicon.png
+          curl -fsS http://127.0.0.1:8787/apple-touch-icon.png -o /tmp/apple.png
+          test -s /tmp/apple.png
+          curl -fsS http://127.0.0.1:8787/robots.txt | grep -F 'Allow: /'
+          curl -fsS http://127.0.0.1:8787/sitemap.xml | grep -F 'https://trillionairethegame.com/'
           curl -fsS http://127.0.0.1:8787/leaderboard | grep -F 'TRILLIONAIRE_OPEN_LEADERBOARD'
           curl -fsS http://127.0.0.1:8787/api/v1/meta | grep -F '"ruleset":"COMP-1.2"'
 
+          CODE=$(curl -sS -o /tmp/analytics.json -w '%{http_code}' -X POST http://127.0.0.1:8787/api/v1/analytics/events -H 'Content-Type: application/json' --data '{"sessionId":"ci-session-12345","event":"page_view","meta":{"path":"/","source":"ci"}}')
+          test "$CODE" = "202"
+          grep -F '"ok":true' /tmp/analytics.json
+          curl -fsS http://127.0.0.1:8787/api/v1/admin/analytics?days=7 -H 'Authorization: Bearer ci-admin-token' -o /tmp/analytics-summary.json
+          grep -F '"visitors":1' /tmp/analytics-summary.json
+          grep -F '"source":"ci"' /tmp/analytics-summary.json
+
+          CODE=$(curl -sS -o /tmp/bad-event.json -w '%{http_code}' -X POST http://127.0.0.1:8787/api/v1/analytics/events -H 'Content-Type: application/json' --data '{"sessionId":"ci-session-12345","event":"not_allowed","meta":{}}')
+          test "$CODE" = "400"
+          CODE=$(curl -sS -o /tmp/no-admin.json -w '%{http_code}' http://127.0.0.1:8787/api/v1/admin/analytics)
+          test "$CODE" = "401"
+
       - name: Callsign moderation smoke test
+        env:
+          PORT: 18787
         run: |
+          set -euo pipefail
           node server.mjs > /tmp/trillionaire-server-mod.log 2>&1 &
           PID=$!
           trap 'kill $PID 2>/dev/null || true; cat /tmp/trillionaire-server-mod.log' EXIT
           for i in {1..20}; do
-            curl -fsS http://127.0.0.1:8787/health >/dev/null && break
+            curl -fsS http://127.0.0.1:18787/health >/dev/null && break
             sleep 0.25
           done
-          RESP=$(curl -fsS -X POST http://127.0.0.1:8787/api/v1/players/anonymous -H 'Content-Type: application/json' --data '{"handle":"N1GGER"}')
+          RESP=$(curl -fsS -X POST http://127.0.0.1:18787/api/v1/players/anonymous -H 'Content-Type: application/json' --data '{"handle":"N1GGER"}')
           echo "$RESP" | grep -E '"handle":"MARS-[A-F0-9]{6}"'
           TOKEN=$(node -e "const x=JSON.parse(process.argv[1]);process.stdout.write(x.token)" "$RESP")
-          CODE=$(curl -sS -o /tmp/mod.json -w '%{http_code}' -X PATCH http://127.0.0.1:8787/api/v1/players/me -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' --data '{"handle":"FUCKING IDIOT"}')
+          CODE=$(curl -sS -o /tmp/mod.json -w '%{http_code}' -X PATCH http://127.0.0.1:18787/api/v1/players/me -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' --data '{"handle":"FUCKING IDIOT"}')
           test "$CODE" = "400"
           grep -F 'Callsign not allowed' /tmp/mod.json
-          CODE=$(curl -sS -o /tmp/admin.json -w '%{http_code}' -X POST http://127.0.0.1:8787/api/v1/admin/moderate-handle -H 'Content-Type: application/json' --data '{}')
-          test "$CODE" = "404"
+
+      - name: Full competitive replay QA
+        env:
+          PORT: 18788
+          BASE_URL: http://127.0.0.1:18788
+        run: |
+          set -euo pipefail
+          QA_DATA="$(mktemp -d)"
+          DATA_DIR="$QA_DATA" node server.mjs > /tmp/trillionaire-qa.log 2>&1 &
+          PID=$!
+          trap 'kill $PID 2>/dev/null || true; rm -rf "$QA_DATA"; cat /tmp/trillionaire-qa.log' EXIT
+          for i in {1..30}; do
+            curl -fsS http://127.0.0.1:18788/health >/dev/null && break
+            sleep 0.25
+          done
+          npm run qa
 
       - name: Docker build
         run: docker build -t trillionaire-ci .
