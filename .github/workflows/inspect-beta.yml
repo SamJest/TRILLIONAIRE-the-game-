@@ -13,5 +13,5 @@ jobs:
         with:
           node-version: '22'
       - run: npm run preflight
-      - name: Run 20 strategic beta simulations
-        run: node scripts/beta-20.mjs
+      - name: Run targeted crew-path beta simulations
+        run: node scripts/crew-path-beta.mjs
