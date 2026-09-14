@@ -7,6 +7,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {ReplayEngine} from './replay-engine.mjs';
 import {loadGameHtml} from './game-source.mjs';
 import {enhanceGameHtml} from './launch-ui.mjs';
+import {enhanceFirstRunHtml} from './first-run-ui.mjs';
 
 const __dirname=path.dirname(fileURLToPath(import.meta.url));
 const PORT=Number(process.env.PORT||8787),HOST=process.env.HOST||'0.0.0.0';
@@ -26,7 +27,7 @@ CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY,player_id TEXT NOT NULL REFE
 CREATE INDEX IF NOT EXISTS idx_runs_board ON runs(season,ruleset,won DESC,score DESC,turn ASC);
 CREATE INDEX IF NOT EXISTS idx_runs_player ON runs(player_id,season,ruleset);`);
 const RAW_GAME_HTML=await loadGameHtml();
-const PUBLIC_GAME_HTML=enhanceGameHtml(RAW_GAME_HTML,{build:BUILD});
+const PUBLIC_GAME_HTML=enhanceFirstRunHtml(enhanceGameHtml(RAW_GAME_HTML,{build:BUILD}));
 const GAME_BYTES=Buffer.from(PUBLIC_GAME_HTML);
 const replayEngine=ReplayEngine.fromHtml(RAW_GAME_HTML);
 function j(res,status,obj){const b=JSON.stringify(obj);res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Content-Length':Buffer.byteLength(b),'Cache-Control':'no-store','Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'Content-Type, Authorization','Access-Control-Allow-Methods':'GET,POST,PATCH,OPTIONS'});res.end(b)}

@@ -24,6 +24,7 @@ jobs:
           node --check replay-engine.mjs
           node --check game-source.mjs
           node --check launch-ui.mjs
+          node --check first-run-ui.mjs
           node --check qa-server.mjs
           node --check scripts/preflight.mjs
 
@@ -41,6 +42,8 @@ jobs:
           done
           curl -fsS http://127.0.0.1:8787/ | grep -F 'id="tr-race-launch"'
           curl -fsS http://127.0.0.1:8787/ | grep -F '<title>TRILLIONAIRE — Mars Race</title>'
+          curl -fsS http://127.0.0.1:8787/ | grep -F 'id="tr-first-run-brief"'
+          curl -fsS http://127.0.0.1:8787/ | grep -F 'Build a Mars settlement that can survive without Earth.'
           curl -fsS http://127.0.0.1:8787/leaderboard | grep -F 'TRILLIONAIRE_OPEN_LEADERBOARD'
           curl -fsS http://127.0.0.1:8787/api/v1/meta | grep -F '"ruleset":"COMP-1.2"'
 
