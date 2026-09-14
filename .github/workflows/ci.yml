@@ -23,11 +23,26 @@ jobs:
           node --check server.mjs
           node --check replay-engine.mjs
           node --check game-source.mjs
+          node --check launch-ui.mjs
           node --check qa-server.mjs
           node --check scripts/preflight.mjs
 
       - name: Game bundle preflight
         run: npm run preflight
+
+      - name: Launch surface smoke test
+        run: |
+          node server.mjs > /tmp/trillionaire-server.log 2>&1 &
+          PID=$!
+          trap 'kill $PID 2>/dev/null || true; cat /tmp/trillionaire-server.log' EXIT
+          for i in {1..20}; do
+            curl -fsS http://127.0.0.1:8787/health >/dev/null && break
+            sleep 0.25
+          done
+          curl -fsS http://127.0.0.1:8787/ | grep -F 'id="tr-race-launch"'
+          curl -fsS http://127.0.0.1:8787/ | grep -F '<title>TRILLIONAIRE — Mars Race</title>'
+          curl -fsS http://127.0.0.1:8787/leaderboard | grep -F 'TRILLIONAIRE_OPEN_LEADERBOARD'
+          curl -fsS http://127.0.0.1:8787/api/v1/meta | grep -F '"ruleset":"COMP-1.2"'
 
       - name: Docker build
         run: docker build -t trillionaire-ci .
