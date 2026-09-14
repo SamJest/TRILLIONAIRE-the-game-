@@ -47,5 +47,23 @@ jobs:
           curl -fsS http://127.0.0.1:8787/leaderboard | grep -F 'TRILLIONAIRE_OPEN_LEADERBOARD'
           curl -fsS http://127.0.0.1:8787/api/v1/meta | grep -F '"ruleset":"COMP-1.2"'
 
+      - name: Callsign moderation smoke test
+        run: |
+          node server.mjs > /tmp/trillionaire-server-mod.log 2>&1 &
+          PID=$!
+          trap 'kill $PID 2>/dev/null || true; cat /tmp/trillionaire-server-mod.log' EXIT
+          for i in {1..20}; do
+            curl -fsS http://127.0.0.1:8787/health >/dev/null && break
+            sleep 0.25
+          done
+          RESP=$(curl -fsS -X POST http://127.0.0.1:8787/api/v1/players/anonymous -H 'Content-Type: application/json' --data '{"handle":"N1GGER"}')
+          echo "$RESP" | grep -E '"handle":"MARS-[A-F0-9]{6}"'
+          TOKEN=$(node -e "const x=JSON.parse(process.argv[1]);process.stdout.write(x.token)" "$RESP")
+          CODE=$(curl -sS -o /tmp/mod.json -w '%{http_code}' -X PATCH http://127.0.0.1:8787/api/v1/players/me -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' --data '{"handle":"FUCKING IDIOT"}')
+          test "$CODE" = "400"
+          grep -F 'Callsign not allowed' /tmp/mod.json
+          CODE=$(curl -sS -o /tmp/admin.json -w '%{http_code}' -X POST http://127.0.0.1:8787/api/v1/admin/moderate-handle -H 'Content-Type: application/json' --data '{}')
+          test "$CODE" = "404"
+
       - name: Docker build
         run: docker build -t trillionaire-ci .
