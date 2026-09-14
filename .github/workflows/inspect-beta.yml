@@ -13,5 +13,5 @@ jobs:
         with:
           node-version: '22'
       - run: npm run preflight
-      - name: Run combined crew-independence beta simulations
-        run: node scripts/crew-independence-beta.mjs
+      - name: Inspect victory requirements
+        run: node scripts/inspect-victory.mjs
