@@ -1,0 +1,38 @@
+name: TRILLIONAIRE Live Smoke
+
+on:
+  push:
+    branches: [diagnostics/live-launch-smoke]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify live production
+        run: |
+          set -euo pipefail
+          BASE=https://trillionairethegame.com
+
+          curl -fsS "$BASE/" -o /tmp/home.html
+          grep -F 'id="tr-analytics-script"' /tmp/home.html
+          grep -F 'id="tr-race-launch"' /tmp/home.html
+          grep -F 'id="tr-first-run-brief"' /tmp/home.html
+          grep -F 'https://trillionairethegame.com/assets/trillionaire-social-card.png' /tmp/home.html
+
+          curl -fsS "$BASE/health" -o /tmp/health.json
+          grep -F '"build":"v0.095"' /tmp/health.json
+          grep -F '"ruleset":"COMP-1.2"' /tmp/health.json
+
+          curl -fsS "$BASE/robots.txt" | grep -F 'Allow: /'
+          curl -fsS "$BASE/sitemap.xml" | grep -F 'https://trillionairethegame.com/'
+          curl -fsS "$BASE/favicon.ico" -o /tmp/favicon && test -s /tmp/favicon
+          curl -fsS "$BASE/apple-touch-icon.png" -o /tmp/apple && test -s /tmp/apple
+
+          CODE=$(curl -sS -o /tmp/a.json -w '%{http_code}' -X POST "$BASE/api/v1/analytics/events" -H 'Content-Type: application/json' --data '{"sessionId":"live-smoke-12345","event":"page_view","meta":{"path":"/live-smoke","source":"github-smoke"}}')
+          test "$CODE" = "202"
+          grep -F '"ok":true' /tmp/a.json
+
+          CODE=$(curl -sS -o /tmp/admin.json -w '%{http_code}' "$BASE/api/v1/admin/analytics")
+          test "$CODE" = "401"
+
+          echo 'LIVE PRODUCTION SMOKE PASSED'
