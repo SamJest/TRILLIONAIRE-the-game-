@@ -12,20 +12,20 @@ const launchMeta=`
 <meta property="og:title" content="TRILLIONAIRE — Mars Race">
 <meta property="og:description" content="You have $1 trillion. Get Mars off Earth. Build, borrow, recover and compete on server-verified leaderboards.">
 <meta property="og:url" content="https://trillionairethegame.com/">
-<meta property="og:image" content="https://raw.githubusercontent.com/SamJest/TRILLIONAIRE-the-game-/main/public/assets/trillionaire-social-card.png">
+<meta property="og:image" content="https://trillionairethegame.com/assets/trillionaire-social-card.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="TRILLIONAIRE Mars Race — You have $1 trillion. Get Mars off Earth.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="TRILLIONAIRE — Mars Race">
 <meta name="twitter:description" content="You have $1 trillion. Get Mars off Earth. Build, borrow, recover and compete.">
-<meta name="twitter:image" content="https://raw.githubusercontent.com/SamJest/TRILLIONAIRE-the-game-/main/public/assets/trillionaire-social-card.png">
-<link rel="icon" type="image/png" sizes="64x64" href="https://raw.githubusercontent.com/SamJest/TRILLIONAIRE-the-game-/main/public/assets/favicon.png">
-<link rel="apple-touch-icon" sizes="180x180" href="https://raw.githubusercontent.com/SamJest/TRILLIONAIRE-the-game-/main/public/assets/apple-touch-icon.png">
+<meta name="twitter:image" content="https://trillionairethegame.com/assets/trillionaire-social-card.png">
+<link rel="icon" type="image/png" sizes="64x64" href="/favicon.ico">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 <link rel="canonical" href="https://trillionairethegame.com/">
 `;
 
 const patched=src.replace(/const LAUNCH_META=`[\s\S]*?`;\n/,`const LAUNCH_META=\`${launchMeta}\`;\n`);
 if(patched===src)throw new Error('launch metadata patch target not found');
 await writeFile(launchUiPath,patched,'utf8');
-await import('./server.mjs');
+await import('./launch-server.mjs');
