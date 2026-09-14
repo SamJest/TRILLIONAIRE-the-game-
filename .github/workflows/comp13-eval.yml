@@ -1,0 +1,17 @@
+name: COMP-1.3 Balance Evaluation
+
+on:
+  push:
+    branches: [balance/comp-1.3-candidate]
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm run preflight
+      - name: Evaluate candidate victory rules
+        run: node scripts/balance-comp13-eval.mjs
