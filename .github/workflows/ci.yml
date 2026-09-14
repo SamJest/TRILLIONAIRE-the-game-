@@ -37,13 +37,18 @@ jobs:
         run: |
           set -euo pipefail
           QA_DATA="$(mktemp -d)"
-          DATA_DIR="$QA_DATA" PORT=18787 HOST=127.0.0.1 npm start >/tmp/trillionaire-qa-server.log 2>&1 &
+          DATA_DIR="$QA_DATA" PORT=18787 HOST=127.0.0.1 node server.mjs >/tmp/trillionaire-qa-server.log 2>&1 &
           QA_PID=$!
           trap 'kill $QA_PID 2>/dev/null || true; rm -rf "$QA_DATA"' EXIT
+          READY=0
           for i in $(seq 1 30); do
-            if curl --silent --fail http://127.0.0.1:18787/health >/dev/null; then break; fi
+            if curl --silent --fail http://127.0.0.1:18787/health >/dev/null; then READY=1; break; fi
             sleep 1
           done
+          if [ "$READY" != "1" ]; then
+            cat /tmp/trillionaire-qa-server.log
+            exit 1
+          fi
           BASE_URL=http://127.0.0.1:18787 npm run qa
 
       - name: Production routing and safe API smoke test
@@ -112,8 +117,9 @@ jobs:
           assert(root.status===200,'root status');
           const html=await root.text();
           assert(html.includes('TRILLIONAIRE'),'root game content');
+          assert(html.includes('id="tr-race-launch"'),'live Mars Race launch UI missing');
+          assert(html.includes('<title>TRILLIONAIRE — Mars Race</title>'),'live presentation title missing');
           console.log('PASS live game root',html.length,'bytes');
-          if(/<title>TRILLIONAIRE v0\.092<\/title>/i.test(html)) console.log('WARN live HTML title metadata still says v0.092');
 
           console.log('ALL SAFE LIVE PRODUCTION SMOKE TESTS PASSED');
           NODE
