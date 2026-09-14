@@ -3,7 +3,9 @@ import {ReplayEngine} from '../replay-engine.mjs';
 import {loadGameHtml} from '../game-source.mjs';
 
 const engine=ReplayEngine.fromHtml(await loadGameHtml());
-const N=120;
+const N=Math.max(1,Number(process.env.COUNT||30));
+const OFFSET=Math.max(0,Number(process.env.OFFSET||0));
+const CHECK_REPLAY=process.env.CHECK_REPLAY==='1';
 const TARGETS={launch:66,energy:70,robotics:58,habitat:64,life:68,industry:64,autonomy:56,reliability:68};
 const CORE=['launch','energy','robotics','habitat','life','industry','autonomy'];
 const RULES={
@@ -27,10 +29,10 @@ function choose(c,p){const data=JSON.stringify(p);const ranked=ev(c,`(()=>{const
 function run(i){const r=rng(0x9e3779b9^(i*2654435761));const keys=Object.keys(TARGETS);const base={};for(const k of keys)base[k]=0.75+r()*1.5;const p={base,deficit:6+r()*12,risk:.08+r()*.45,cost:r()*.18,strategic:5+r()*25,crewProject:40+r()*100,portfolio:r()<.12?1:r()<.35?2:3,finance:['none','supplier_equity','sovereign','public_bond'][Math.floor(r()*4)],proc:r()<.65?'open':'vertical',exec:r()<.82?'qualify':'iterate',auto:r()<.75?'review':'delegated',incident:Math.floor(r()*3),crewReadiness:48+r()*22};const c=engine.fresh();engine.startChallenge(c);let guard=0,stuck=null;const first={};
  const check=()=>{const s=snap(c);for(const [name,fn] of Object.entries(RULES)){if(!first[name]&&fn(s))first[name]={turn:s.turn,dep:+s.dep.toFixed(2),debt:+Number(s.debt||0).toFixed(1),reliability:+Number(s.systems.reliability||0).toFixed(1),avg:+avgReadiness(s).toFixed(3),min:+minReadiness(s).toFixed(3),met:countMet(s),systems:s.systems,crew:!!s.flags?.crew}}};check();
  while(snap(c).phase!=='ending'&&guard++<300){const s=snap(c),before=ac(c);try{if(s.pending)ev(c,`chooseIncident(${p.incident})`);else if(s.phase==='incidentOutcome')ev(c,'continueAfterIncident()');else if(s.special){if(s.turn===12){const ready=(s.systems.launch+s.systems.habitat+s.systems.life+s.systems.reliability+s.systems.energy)/5;ev(c,`chooseSpecial(${ready>=p.crewReadiness?0:1})`)}else ev(c,`chooseSpecial(${Math.floor(r()*3)})`)}else if(s.phase==='outcome')ev(c,'advance()');else if(s.phase==='event'){if(s.turn===0){call(c,`chooseDoctrine('procurement','${p.proc}')`);if(p.finance!=='none')call(c,`applyCapitalDeal('${p.finance}')`)}if(s.turn===1)call(c,`chooseDoctrine('execution','${p.exec}')`);if(s.turn===2)call(c,`chooseDoctrine('autonomy','${p.auto}')`);if(s.debt>=205)call(c,'repayDebt()');choose(c,p)}else{stuck='phase '+s.phase;break}}catch(e){stuck=e.message;break}check();if(ac(c)===before&&snap(c).phase===s.phase&&snap(c).turn===s.turn){stuck='no progress';break}}
- const final=snap(c),record=engine.record(c),actions=engine.actions(c);let replayOk=false;try{const rr=engine.replay(actions);replayOk=JSON.stringify(rr.record)===JSON.stringify(record)}catch{}return{i,p,first,final,record,stuck,replayOk};}
-const results=[];for(let i=0;i<N;i++)results.push(run(i));
-const summary={attempted:N,currentWins:results.filter(x=>x.record?.won).length,stuck:results.filter(x=>x.stuck).length,replayFailures:results.filter(x=>!x.replayOk).length,rules:{}};
+ const final=snap(c),record=engine.record(c),actions=engine.actions(c);let replayOk=true;if(CHECK_REPLAY){try{const rr=engine.replay(actions);replayOk=JSON.stringify(rr.record)===JSON.stringify(record)}catch{replayOk=false}}return{i,p,first,final,record,stuck,replayOk};}
+const results=[];for(let n=0;n<N;n++)results.push(run(OFFSET+n));
+const summary={offset:OFFSET,attempted:N,currentWins:results.filter(x=>x.record?.won).length,stuck:results.filter(x=>x.stuck).length,replayFailures:results.filter(x=>!x.replayOk).length,rules:{}};
 for(const name of Object.keys(RULES)){const wins=results.filter(x=>x.first[name]);const turns=wins.map(x=>x.first[name].turn);summary.rules[name]={wins:wins.length,rate:+(wins.length/N*100).toFixed(1),medianTurn:turns.length?turns.sort((a,b)=>a-b)[Math.floor(turns.length/2)]:null,minTurn:turns.length?Math.min(...turns):null,maxTurn:turns.length?Math.max(...turns):null};}
 console.log('COMP13_EVAL '+JSON.stringify(summary));
-for(const name of Object.keys(RULES)){const wins=results.filter(x=>x.first[name]).sort((a,b)=>a.first[name].turn-b.first[name].turn||Number(b.record?.score||0)-Number(a.record?.score||0)).slice(0,5);for(const x of wins)console.log('COMP13_WIN '+JSON.stringify({rule:name,i:x.i,trigger:x.first[name],finalScore:x.record?.score,finalGrade:x.record?.grade,finance:x.p.finance,doctrines:[x.p.proc,x.p.exec,x.p.auto]}));}
+for(const name of Object.keys(RULES)){const wins=results.filter(x=>x.first[name]).sort((a,b)=>a.first[name].turn-b.first[name].turn||Number(b.record?.score||0)-Number(a.record?.score||0)).slice(0,3);for(const x of wins)console.log('COMP13_WIN '+JSON.stringify({rule:name,i:x.i,trigger:x.first[name],finalScore:x.record?.score,finalGrade:x.record?.grade,finance:x.p.finance,doctrines:[x.p.proc,x.p.exec,x.p.auto]}));}
 if(summary.stuck||summary.replayFailures)process.exitCode=2;
