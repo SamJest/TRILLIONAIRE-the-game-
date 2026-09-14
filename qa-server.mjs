@@ -5,6 +5,8 @@ const engine=ReplayEngine.fromHtml(await loadGameHtml());
 function assert(x,m){if(!x)throw new Error(m)}
 function hs(s){let h=2166136261>>>0;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)}return h>>>0}
 function sig(r){const c={...r};delete c.signature;const s=JSON.stringify(c);return (hs(s).toString(16).padStart(8,'0')+hs(s.split('').reverse().join('')).toString(16).padStart(8,'0')).toUpperCase()}
+const homeR=await fetch(BASE+'/');const home=await homeR.text();assert(homeR.status===200&&home.includes('id="tr-race-launch"')&&home.includes('<title>TRILLIONAIRE — Mars Race</title>'),'launch UI missing from home');console.log('PASS launch leaderboard surface');
+const lbR=await fetch(BASE+'/leaderboard');const lb=await lbR.text();assert(lbR.status===200&&lb.includes('id="tr-race-modal"')&&lb.includes('TRILLIONAIRE_OPEN_LEADERBOARD'),'leaderboard route missing');console.log('PASS leaderboard route');
 const meta=await (await fetch(BASE+'/api/v1/meta')).json();assert(meta.online&&meta.ruleset==='COMP-1.2'&&meta.build==='v0.095','meta mismatch');console.log('PASS meta');
 const regR=await fetch(BASE+'/api/v1/players/anonymous',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({handle:'QA-VERIFY'})});assert(regR.status===201,'register failed');const ident=await regR.json();console.log('PASS anonymous identity');
 const meR=await fetch(BASE+'/api/v1/players/me',{headers:{authorization:'Bearer '+ident.token}});assert(meR.status===200,'me failed');console.log('PASS authenticated identity');
