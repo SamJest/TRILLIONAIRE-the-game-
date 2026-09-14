@@ -13,5 +13,5 @@ jobs:
         with:
           node-version: '22'
       - run: npm run preflight
-      - name: Inspect strategy runtime
-        run: node scripts/inspect-beta-runtime.mjs
+      - name: Run 20 strategic beta simulations
+        run: node scripts/beta-20.mjs
