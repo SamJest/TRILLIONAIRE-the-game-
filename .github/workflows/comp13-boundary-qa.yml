@@ -12,4 +12,15 @@ jobs:
           node-version: '22'
       - run: npm run preflight
       - run: node scripts/qa-comp13-boundaries.mjs
-      - run: node qa-server.mjs
+      - name: Run authoritative server QA
+        run: |
+          rm -rf data
+          node server.mjs > /tmp/trillionaire-server.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID 2>/dev/null || true; cat /tmp/trillionaire-server.log' EXIT
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:8787/health >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8787/health
+          node qa-server.mjs
