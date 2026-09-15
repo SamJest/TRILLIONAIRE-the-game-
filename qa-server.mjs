@@ -1,17 +1,19 @@
 import {ReplayEngine} from './replay-engine.mjs';
 import {loadGameHtml} from './game-source.mjs';
 const BASE=process.env.BASE_URL||'http://127.0.0.1:8787';
+const EXPECTED_RULESET='COMP-1.3';
+const EXPECTED_BUILD='v0.096';
 const engine=ReplayEngine.fromHtml(await loadGameHtml());
 function assert(x,m){if(!x)throw new Error(m)}
 function hs(s){let h=2166136261>>>0;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)}return h>>>0}
 function sig(r){const c={...r};delete c.signature;const s=JSON.stringify(c);return (hs(s).toString(16).padStart(8,'0')+hs(s.split('').reverse().join('')).toString(16).padStart(8,'0')).toUpperCase()}
-const homeR=await fetch(BASE+'/');const home=await homeR.text();assert(homeR.status===200&&home.includes('id="tr-race-launch"')&&home.includes('<title>TRILLIONAIRE — Mars Race</title>'),'launch UI missing from home');console.log('PASS launch leaderboard surface');
-const lbR=await fetch(BASE+'/leaderboard');const lb=await lbR.text();assert(lbR.status===200&&lb.includes('id="tr-race-modal"')&&lb.includes('TRILLIONAIRE_OPEN_LEADERBOARD'),'leaderboard route missing');console.log('PASS leaderboard route');
-const meta=await (await fetch(BASE+'/api/v1/meta')).json();assert(meta.online&&meta.ruleset==='COMP-1.2'&&meta.build==='v0.095','meta mismatch');console.log('PASS meta');
+const homeR=await fetch(BASE+'/');const home=await homeR.text();assert(homeR.status===200&&home.includes('id="tr-race-launch"')&&home.includes('<title>TRILLIONAIRE — Mars Race</title>'),'launch UI missing from home');assert(!home.includes('COMP-1.2'),'rendered home contains stale COMP-1.2');assert(home.includes('COMP-1.3')&&home.includes('88% readiness')&&home.includes('65% system floor')&&home.includes('turn 18+'),'rendered COMP-1.3 rules missing');console.log('PASS launch leaderboard surface and rendered COMP-1.3 rules');
+const lbR=await fetch(BASE+'/leaderboard');const lb=await lbR.text();assert(lbR.status===200&&lb.includes('id="tr-race-modal"')&&lb.includes('TRILLIONAIRE_OPEN_LEADERBOARD'),'leaderboard route missing');assert(!lb.includes('COMP-1.2'),'leaderboard route contains stale COMP-1.2');console.log('PASS leaderboard route');
+const meta=await (await fetch(BASE+'/api/v1/meta')).json();assert(meta.online&&meta.ruleset===EXPECTED_RULESET&&meta.build===EXPECTED_BUILD,'meta mismatch');console.log('PASS meta');
 const regR=await fetch(BASE+'/api/v1/players/anonymous',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({handle:'QA-VERIFY'})});assert(regR.status===201,'register failed');const ident=await regR.json();console.log('PASS anonymous identity');
 const meR=await fetch(BASE+'/api/v1/players/me',{headers:{authorization:'Bearer '+ident.token}});assert(meR.status===200,'me failed');console.log('PASS authenticated identity');
 const patchR=await fetch(BASE+'/api/v1/players/me',{method:'PATCH',headers:{'content-type':'application/json',authorization:'Bearer '+ident.token},body:JSON.stringify({handle:'QA-UPDATED'})});assert(patchR.status===200,'handle update failed');console.log('PASS handle update');
-const run=engine.generateHoldRun();const payload={protocol:'TRILLIONAIRE-RUN-1',submittedAt:new Date().toISOString(),clientBuild:'v0.095',season:'S01-W01',ruleset:'COMP-1.2',player:{handle:'IGNORED'},run};
+const run=engine.generateHoldRun();const payload={protocol:'TRILLIONAIRE-RUN-1',submittedAt:new Date().toISOString(),clientBuild:EXPECTED_BUILD,season:'S01-W01',ruleset:EXPECTED_RULESET,player:{handle:'IGNORED'},run};
 const unauth=await fetch(BASE+'/api/v1/runs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});assert(unauth.status===401,'unauth submission accepted');console.log('PASS auth required');
 const good=await fetch(BASE+'/api/v1/runs',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+ident.token},body:JSON.stringify(payload)});const goodJ=await good.json();assert(good.status===201&&goodJ.verified===true,'valid replay rejected');console.log('PASS authoritative replay accepted');
 const duplicate=await fetch(BASE+'/api/v1/runs',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+ident.token},body:JSON.stringify(payload)});assert(duplicate.status===200&&(await duplicate.json()).duplicate===true,'duplicate handling failed');console.log('PASS duplicate signature');
