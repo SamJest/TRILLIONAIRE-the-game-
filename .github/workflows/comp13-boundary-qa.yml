@@ -1,0 +1,15 @@
+name: COMP-1.3 Boundary QA
+on:
+  push:
+    branches: [balance/comp-1.3-candidate]
+jobs:
+  boundary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm run preflight
+      - run: node scripts/qa-comp13-boundaries.mjs
+      - run: node qa-server.mjs
