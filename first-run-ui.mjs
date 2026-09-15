@@ -7,9 +7,9 @@ const FIRST_RUN_UI=`
 @media(max-width:640px){.tr-fr-grid{grid-template-columns:1fr}.tr-fr-title{font-size:16px}#tr-first-run-brief{margin:11px 0 13px;padding:12px}.tr-fr-copy{font-size:10px}#tr-first-action-tip{bottom:max(60px,calc(env(safe-area-inset-bottom) + 48px))}}
 </style>
 <div id="tr-first-run-brief" aria-live="polite">
-  <div class="tr-fr-head"><div><div class="tr-fr-kicker">Mission Control · first run</div><div class="tr-fr-title">Build a Mars settlement that can survive without Earth.</div><div class="tr-fr-copy">You are not choosing the single “correct” build. You are allocating capital under uncertainty while <strong>Helix</strong> races you. Win by making Mars self-sustaining before the clock runs out.</div></div><button class="tr-fr-close" id="tr-fr-close" aria-label="Dismiss first-run briefing">×</button></div>
-  <div class="tr-fr-grid"><div class="tr-fr-rule"><b>WHAT COUNTS AS A WIN</b><span>Finish with Earth dependency at or below 18% and debt below $220B.</span></div><div class="tr-fr-rule"><b>WHAT YOU ACTUALLY DO</b><span>Queue up to three programmes, fund them, then manage each six-month cycle and its consequences.</span></div><div class="tr-fr-rule"><b>WHERE TO START</b><span>Use Guided Run once. It is the real simulation with explanations, not an easier fake tutorial.</span></div></div>
-  <div class="tr-fr-note"><strong>No answer key.</strong> Different sequences, dependencies and capital choices can all work.</div>
+  <div class="tr-fr-head"><div><div class="tr-fr-kicker">Mission Control · first run · COMP-1.3</div><div class="tr-fr-title">Build a Mars settlement that can survive without Earth.</div><div class="tr-fr-copy">You are not choosing the single “correct” build. You are allocating capital under uncertainty while <strong>Helix</strong> races you. Win by making Mars self-sustaining before the clock runs out.</div></div><button class="tr-fr-close" id="tr-fr-close" aria-label="Dismiss first-run briefing">×</button></div>
+  <div class="tr-fr-grid"><div class="tr-fr-rule"><b>WHAT COUNTS AS A WIN</b><span>Turn 18+. Permanent crew. ≥88% overall readiness, every core system ≥65% of target, reliability ≥68, Earth dependency ≤18%, and debt below $220B.</span></div><div class="tr-fr-rule"><b>WHAT YOU ACTUALLY DO</b><span>Queue up to three programmes, fund them, then manage each six-month cycle and its consequences.</span></div><div class="tr-fr-rule"><b>WHERE TO START</b><span>Use Guided Run once. It is the real simulation with explanations, not an easier fake tutorial.</span></div></div>
+  <div class="tr-fr-note"><strong>No hidden finish gate.</strong> The live race panel shows every requirement. Different sequences, dependencies and capital choices can all work.</div>
 </div>
 <div id="tr-first-action-tip" role="status" aria-live="polite"><div class="tr-fa-row"><div class="tr-fa-num" id="tr-fa-num">1</div><div class="tr-fa-copy"><b id="tr-fa-title">Inspect the programmes</b><span id="tr-fa-text">Queue up to three projects that fit the systems you want to build. You can remove them before funding.</span></div><button class="tr-fa-close" id="tr-fa-close" aria-label="Dismiss guidance">×</button></div><div class="tr-fa-progress"><i id="tr-fa-progress"></i></div></div>
 <script id="tr-first-run-script">
@@ -36,7 +36,7 @@ const mo=new MutationObserver(()=>mountBrief());mo.observe(document.documentElem
 `;
 
 export function enhanceFirstRunHtml(html){
-  let out=String(html);
+  let out=String(html).replaceAll('COMP-1.2','COMP-1.3');
   if(out.includes('id="tr-first-run-script"'))return out;
   if(out.includes('</body>'))return out.replace('</body>',FIRST_RUN_UI+'\n</body>');
   return out+FIRST_RUN_UI;

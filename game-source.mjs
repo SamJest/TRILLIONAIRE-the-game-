@@ -3,6 +3,7 @@ import {existsSync} from 'node:fs';
 import {brotliDecompressSync} from 'node:zlib';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {applyComp13Candidate} from './comp13-patch.mjs';
 
 const __dirname=path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR=path.join(__dirname,'public');
@@ -25,7 +26,8 @@ export async function loadGameHtml(){
     const encoded=(await Promise.all(names.map(n=>readFile(path.join(PARTS_DIR,n),'utf8')))).join('');
     compressed=Buffer.from(encoded,'base64');
   }
-  cached=brotliDecompressSync(compressed).toString('utf8');
-  if(!cached.toLowerCase().includes('<!doctype html>')||!cached.includes('TRILLIONAIRE'))throw new Error('Game bundle assembly failed');
+  const base=brotliDecompressSync(compressed).toString('utf8');
+  if(!base.toLowerCase().includes('<!doctype html>')||!base.includes('TRILLIONAIRE'))throw new Error('Game bundle assembly failed');
+  cached=applyComp13Candidate(base);
   return cached;
 }

@@ -15,9 +15,9 @@ const HOST=process.env.HOST||'0.0.0.0';
 const DATA_DIR=process.env.DATA_DIR?path.resolve(process.env.DATA_DIR):path.join(__dirname,'data');
 const DB_FILE=path.join(DATA_DIR,'trillionaire.sqlite');
 const SEASON=process.env.TRILLIONAIRE_SEASON||'S01-W01';
-const RULESET=process.env.TRILLIONAIRE_RULESET||'COMP-1.2';
+const RULESET=process.env.TRILLIONAIRE_RULESET||'COMP-1.3';
 const SEED=process.env.TRILLIONAIRE_SEED||'MARS-RACE-ALPHA-002';
-const BUILD=process.env.TRILLIONAIRE_BUILD||'v0.095';
+const BUILD=process.env.TRILLIONAIRE_BUILD||'v0.096';
 const ADMIN_TOKEN=String(process.env.TRILLIONAIRE_ADMIN_TOKEN||'');
 const PROTOCOL='TRILLIONAIRE-RUN-1';
 const MAX_BODY=650_000;
@@ -292,7 +292,7 @@ const server=http.createServer(async(req,res)=>{
     }
 
     if(req.method==='GET'&&u.pathname.startsWith('/api/v1/runs/')){
-      const id=u.pathname.split('/').pop();
+      const id=decodeURIComponent(u.pathname.slice('/api/v1/runs/'.length));
       const r=db.prepare('SELECT r.*,p.handle FROM runs r JOIN players p ON p.id=r.player_id WHERE r.id=?').get(id);
       if(!r)return j(res,404,{error:'Run not found'});
       return j(res,200,{run:pub(r,rankCanonical(id))});
@@ -304,19 +304,27 @@ const server=http.createServer(async(req,res)=>{
       if(!me)return j(res,401,{error:'Authentication required'});
       const p=await body(req),err=validateSubmission(p);
       if(err)return j(res,400,{error:err});
-      const ex=db.prepare('SELECT r.*,p.handle FROM runs r JOIN players p ON p.id=r.player_id WHERE r.season=? AND r.ruleset=? AND r.signature=?').get(SEASON,RULESET,p.run.signature);
-      if(ex)return j(res,200,{ok:true,duplicate:true,verified:true,id:ex.id,rank:rankCanonical(ex.id),run:pub(ex,rankCanonical(ex.id))});
-      let replay;
-      try{replay=replayEngine.replay(p.run.actions);}
+      let replayed;
+      try{replayed=replayEngine.replay(p.run.actions).record;}
       catch(e){return j(res,422,{error:'Replay rejected',detail:e.message});}
-      const mm=mismatch(p.run,replay.record);
-      if(mm.length)return j(res,422,{error:'Replay result mismatch',mismatches:mm.slice(0,8)});
-      const r=p.run,id=crypto.randomUUID(),now=new Date().toISOString();
-      const iph=crypto.createHash('sha256').update(ip(req)+'|'+SEASON).digest('hex').slice(0,16);
-      db.prepare(`INSERT INTO runs(id,player_id,season,ruleset,seed,client_build,protocol,signature,won,score,grade,turn,completion,dependency,reliability,capital,debt,failures,slips,population,architecture,fingerprint,rival,actions_json,submitted_at,verified_at,ip_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id,me.id,SEASON,RULESET,SEED,p.clientBuild,PROTOCOL,r.signature,r.won?1:0,r.score,r.grade,r.turn,r.completion,r.dependency,r.reliability,r.capital,r.debt,r.failures,r.slips,r.population,r.architecture,r.fingerprint,r.rival,JSON.stringify(r.actions),p.submittedAt||now,now,iph);
-      const saved=db.prepare('SELECT r.*,p.handle FROM runs r JOIN players p ON p.id=r.player_id WHERE r.id=?').get(id);
-      const rank=rankCanonical(id);
-      return j(res,201,{ok:true,verified:true,id,rank,run:pub(saved,rank)});
+      if(!replayed)return j(res,422,{error:'Replay produced no run record'});
+      const differences=mismatch(p.run,replayed);
+      if(differences.length)return j(res,422,{error:'Authoritative replay mismatch',differences});
+      const id=crypto.randomUUID(),now=new Date().toISOString(),iph=crypto.createHash('sha256').update(ip(req)).digest('hex').slice(0,24);
+      try{
+        db.prepare(`INSERT INTO runs(id,player_id,season,ruleset,seed,client_build,protocol,signature,won,score,grade,turn,completion,dependency,reliability,capital,debt,failures,slips,population,architecture,fingerprint,rival,actions_json,submitted_at,verified_at,ip_hash)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+          id,me.id,SEASON,RULESET,SEED,BUILD,PROTOCOL,replayed.signature,replayed.won?1:0,replayed.score,replayed.grade,replayed.turn,replayed.completion,replayed.dependency,replayed.reliability,replayed.capital,replayed.debt,replayed.failures,replayed.slips,replayed.population,replayed.architecture,replayed.fingerprint,replayed.rival,JSON.stringify(p.run.actions),p.submittedAt||now,now,iph
+        );
+      }catch(e){
+        if(String(e.message).includes('UNIQUE')){
+          const old=db.prepare('SELECT r.*,p.handle FROM runs r JOIN players p ON p.id=r.player_id WHERE r.season=? AND r.ruleset=? AND r.signature=?').get(SEASON,RULESET,replayed.signature);
+          if(old)return j(res,200,{verified:true,duplicate:true,id:old.id,rank:rankCanonical(old.id),run:pub(old,rankCanonical(old.id))});
+        }
+        throw e;
+      }
+      const row=db.prepare('SELECT r.*,p.handle FROM runs r JOIN players p ON p.id=r.player_id WHERE r.id=?').get(id);
+      return j(res,201,{verified:true,id,rank:rankCanonical(id),run:pub(row,rankCanonical(id))});
     }
 
     return j(res,404,{error:'Not found'});
@@ -326,4 +334,4 @@ const server=http.createServer(async(req,res)=>{
   }
 });
 
-server.listen(PORT,HOST,()=>console.log(`TRILLIONAIRE ${BUILD} competitive server on http://${HOST}:${PORT}`));
+server.listen(PORT,HOST,()=>console.log(`TRILLIONAIRE competitive server on http://${HOST}:${PORT} · ${BUILD} · ${RULESET}`));
