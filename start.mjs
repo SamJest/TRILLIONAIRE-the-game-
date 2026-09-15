@@ -25,7 +25,8 @@ const launchMeta=`
 <link rel="canonical" href="https://trillionairethegame.com/">
 `;
 
-const patched=src.replace(/const LAUNCH_META=`[\s\S]*?`;\n/,`const LAUNCH_META=\`${launchMeta}\`;\n`);
-if(patched===src)throw new Error('launch metadata patch target not found');
-await writeFile(launchUiPath,patched,'utf8');
+const launchMetaRe=/const LAUNCH_META=`[\s\S]*?`;\n/;
+if(!launchMetaRe.test(src))throw new Error('launch metadata patch target not found');
+const patched=src.replace(launchMetaRe,`const LAUNCH_META=\`${launchMeta}\`;\n`);
+if(patched!==src)await writeFile(launchUiPath,patched,'utf8');
 await import('./launch-server.mjs');
