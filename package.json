@@ -1,6 +1,6 @@
 {
   "name": "trillionaire-the-game",
-  "version": "0.95.0",
+  "version": "0.96.0",
   "private": true,
   "type": "module",
   "description": "TRILLIONAIRE browser strategy game and authoritative competitive leaderboard server",
