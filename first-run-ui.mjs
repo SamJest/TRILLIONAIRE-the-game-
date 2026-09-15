@@ -36,7 +36,7 @@ const mo=new MutationObserver(()=>mountBrief());mo.observe(document.documentElem
 `;
 
 export function enhanceFirstRunHtml(html){
-  let out=String(html);
+  let out=String(html).replaceAll('COMP-1.2','COMP-1.3');
   if(out.includes('id="tr-first-run-script"'))return out;
   if(out.includes('</body>'))return out.replace('</body>',FIRST_RUN_UI+'\n</body>');
   return out+FIRST_RUN_UI;
